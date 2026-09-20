@@ -1,0 +1,33 @@
+{
+  "name": "walletuq",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n API,CLIENTE-A,CLIENTE-B -c yellow,cyan,magenta \"npm:dev:api\" \"npm:dev:a\" \"npm:dev:b\"",
+    "dev:api": "node server/index.mjs",
+    "dev:a": "vite --port 5173 --strictPort",
+    "dev:b": "vite --port 5174 --strictPort",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test:flow": "node server/smoke-test.mjs"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "latest",
+    "@vitejs/plugin-react": "latest",
+    "cors": "latest",
+    "express": "latest",
+    "jsonwebtoken": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwindcss": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "concurrently": "latest",
+    "typescript": "~5.9.3",
+    "vite": "latest"
+  }
+}
