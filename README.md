@@ -31,3 +31,4 @@ Para transferencias superiores a $1.000.000, el OTP de demostración es `123456`
 - Niveles Bronze, Silver, Gold y Platinum.
 - Historial compartido y persistente en JSON local.
 - Interfaz responsive desde 320 px.
+"# Parcial-1--Ingenier-a-de-Software-2" 
