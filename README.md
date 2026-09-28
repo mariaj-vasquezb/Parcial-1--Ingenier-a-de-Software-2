@@ -22,7 +22,7 @@ Para transferencias superiores a $1.000.000, el OTP de demostración es `123456`
 ## Requisitos implementados
 
 - Registro con documento único y KYC mock.
-- Login con PIN de seis dígitos y bloqueo tras tres intentos fallidos.
+- Login con PIN de seis dígitos y bloqueo temporal de 15 minutos tras tres intentos fallidos consecutivos. El plazo se conserva al reiniciar el servidor y se restablecen los intentos al vencer o iniciar sesión correctamente.
 - Sesión JWT de 15 minutos.
 - Panel con saldo, puntos, nivel, progreso, comisión y límite diario.
 - Recarga mock con mínimo de $10.000 y sin comisión interna.

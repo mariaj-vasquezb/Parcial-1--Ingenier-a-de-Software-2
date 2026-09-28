@@ -1,4 +1,6 @@
+import { MAX_LOGIN_ATTEMPTS, recordFailedLogin, resetLoginAttempts, loginLockMessage } from './login-lock.mjs'
 import express from 'express'
+import { validateRegistration } from '../shared/registration.mjs'
 import cors from 'cors'
 import jwt from 'jsonwebtoken'
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
@@ -31,6 +33,7 @@ const auth = (req, res, next) => {
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
     const payload = jwt.verify(token, JWT_SECRET)
     const store = readStore(); const user = store.users.find((item) => item.id === payload.sub)
+    if (user?.status === 'blocked') return res.status(423).json({ message: loginLockMessage(user), blockedUntil: user.blockedUntil })
     if (!user || user.status !== 'active') return res.status(403).json({ message: 'La cuenta no está disponible.' })
     req.user = user; req.store = store; next()
   } catch { res.status(401).json({ message: 'Tu sesión expiró. Inicia sesión nuevamente.' }) }
@@ -39,9 +42,10 @@ const auth = (req, res, next) => {
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'WalletUQ API' }))
 
 app.post('/api/auth/register', (req, res) => {
-  const { fullName, document, email, phone, pin, acceptedKyc } = req.body ?? {}
-  if (!fullName || !/^\d{6,12}$/.test(document ?? '') || !/^\S+@\S+\.\S+$/.test(email ?? '') || !/^\d{10}$/.test(phone ?? '') || !/^\d{6}$/.test(pin ?? '')) return res.status(400).json({ message: 'Revisa los datos. El PIN debe tener exactamente seis dígitos.' })
-  if (!acceptedKyc) return res.status(400).json({ message: 'Debes completar la validación de identidad simulada.' })
+  const errors = validateRegistration(req.body ?? {})
+  if (Object.keys(errors).length) return res.status(400).json({ message: Object.values(errors)[0], errors })
+  const { fullName, document, phone, pin } = req.body
+  const email = req.body.email.trim().toLowerCase()
   const store = readStore()
   if (store.users.some((user) => user.document === document)) return res.status(409).json({ message: 'Ya existe una cuenta con este documento.' })
   if (store.users.some((user) => user.email.toLowerCase() === email.toLowerCase())) return res.status(409).json({ message: 'Este correo ya está registrado.' })
@@ -54,15 +58,15 @@ app.post('/api/auth/register', (req, res) => {
 app.post('/api/auth/login', (req, res) => {
   const { document, pin } = req.body ?? {}; const store = readStore(); const user = store.users.find((item) => item.document === document)
   if (!user) return res.status(401).json({ message: 'Documento o PIN incorrectos.' })
-  if (user.status === 'blocked') return res.status(423).json({ message: 'Cuenta bloqueada por intentos fallidos. Contacta soporte.' })
+  if (user.status === 'blocked') return res.status(423).json({ message: loginLockMessage(user), blockedUntil: user.blockedUntil })
+  if (user.status !== 'active') return res.status(403).json({ message: 'La cuenta no está disponible.' })
   const supplied = Buffer.from(hashPin(String(pin ?? ''), user.pinSalt), 'hex'); const expected = Buffer.from(user.pinHash, 'hex')
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-    user.failedAttempts += 1
-    if (user.failedAttempts >= 3) user.status = 'blocked'
+    recordFailedLogin(user)
     writeStore(store)
-    return res.status(user.status === 'blocked' ? 423 : 401).json({ message: user.status === 'blocked' ? 'Cuenta bloqueada después de tres intentos fallidos.' : `PIN incorrecto. Te quedan ${3 - user.failedAttempts} intentos.` })
+    return res.status(user.status === 'blocked' ? 423 : 401).json({ message: user.status === 'blocked' ? loginLockMessage(user) : `PIN incorrecto. Te quedan ${MAX_LOGIN_ATTEMPTS - user.failedAttempts} intentos.`, ...(user.status === 'blocked' ? { blockedUntil: user.blockedUntil } : {}) })
   }
-  user.failedAttempts = 0; writeStore(store)
+  resetLoginAttempts(user); writeStore(store)
   res.json({ token: createToken(user), user: publicUser(user) })
 })
 

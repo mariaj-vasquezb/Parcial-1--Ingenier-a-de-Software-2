@@ -1,3 +1,4 @@
+import { refreshLoginLock } from './login-lock.mjs'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,7 +8,14 @@ const emptyStore = { users: [], transactions: [] }
 
 export function readStore() {
   if (!existsSync(file)) return structuredClone(emptyStore)
-  return JSON.parse(readFileSync(file, 'utf8'))
+  const store = JSON.parse(readFileSync(file, 'utf8'))
+  const now = Date.now()
+  let changed = false
+  for (const user of store.users) {
+    if (refreshLoginLock(user, now)) changed = true
+  }
+  if (changed) writeStore(store)
+  return store
 }
 
 export function writeStore(store) {

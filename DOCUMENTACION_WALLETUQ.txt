@@ -1,0 +1,457 @@
+WALLETUQ — DOCUMENTACIÓN DEL PROGRAMA Y GUÍA DE USO
+Fecha: 28 de septiembre de 2026
+Basado en los archivos del proyecto revisados en esta fecha.
+
+1. ¿QUÉ ES Y PARA QUÉ SIRVE?
+
+WalletUQ es un prototipo académico de una billetera digital. Permite crear una cuenta, iniciar sesión con documento y PIN, recargar saldo simulado, transferir a otro usuario y consultar movimientos. Al transferir se ganan puntos, que permiten subir de nivel y reducir las comisiones.
+
+Los valores se muestran en pesos colombianos (COP). No se mueve dinero real. Las recargas con tarjeta o cuenta bancaria, la conexión PSE, la verificación de identidad y el OTP son simulaciones.
+
+2. ¿EN QUÉ ESTÁ HECHO?
+
+El programa tiene tres partes principales:
+
+- Frontend: la interfaz que se ve en el navegador. Está hecha con React y TypeScript. Los archivos .tsx contienen componentes, es decir, partes de la pantalla con su presentación y comportamiento.
+- Backend: el servidor que recibe solicitudes, revisa las reglas y guarda las operaciones. Está hecho con Node.js, Express y JavaScript, en archivos .mjs.
+- Almacenamiento: un archivo JSON local. No se utiliza MySQL, PostgreSQL ni MongoDB en esta versión.
+
+Para el diseño se usan Tailwind CSS, CSS propio e iconos de Lucide. Vite inicia la interfaz durante el desarrollo y genera la versión compilada.
+
+Flujo general:
+
+Usuario -> interfaz React -> solicitud HTTP con JSON -> API Express
+                                                        |
+                                                        v
+                                            reglas y validaciones
+                                                        |
+                                                        v
+                                            server/data/store.json
+
+La respuesta del servidor vuelve a React y actualiza la pantalla. JSON es un formato de texto para representar objetos y listas. API es el conjunto de rutas por las que la interfaz se comunica con el servidor.
+
+3. ESTRUCTURA DEL PROYECTO
+
+wallet/
+  index.html
+  package.json
+  package-lock.json
+  vite.config.ts
+  tsconfig.json
+  tsconfig.app.json
+  tsconfig.node.json
+  README.md
+  .gitignore
+  src/
+    main.tsx
+    App.tsx
+    Auth.tsx
+    Dashboard.tsx
+    Modal.tsx
+    api.ts
+    types.ts
+    styles.css
+  shared/
+    registration.mjs
+    registration.d.mts
+    registration.test.mjs
+  server/
+    index.mjs
+    store.mjs
+    login-lock.mjs
+    login-lock.test.mjs
+    smoke-test.mjs
+    data/
+      store.json
+  node_modules/       Se genera al instalar las dependencias.
+  dist/              Se genera al compilar la interfaz.
+
+Archivos principales y para qué sirve cada uno:
+
+index.html
+Es la página base. Define el idioma español, el título WalletUQ y el elemento root donde React monta la aplicación.
+
+src/main.tsx
+Es el punto de entrada del frontend. Carga los estilos y renderiza App dentro de StrictMode, una herramienta de React para detectar problemas durante el desarrollo.
+
+src/App.tsx
+Controla si se muestra el acceso o el panel. Si encuentra un token guardado, consulta /api/me para comprobar la sesión. También permite cerrarla eliminando el token del navegador.
+
+src/Auth.tsx
+Contiene las pestañas Ingresar y Registrarme, los campos del formulario y los mensajes de error. Usa las validaciones compartidas y envía los datos a /auth/register o /auth/login. Al autenticarse, guarda el token y muestra el panel. Los errores del registro aparecen al salir de un campo o enviar el formulario y se actualizan al corregirlo.
+
+src/Dashboard.tsx
+Contiene el panel con saldo, número de cuenta, puntos, nivel, comisión, límite diario y movimientos recientes. También contiene los componentes internos DepositModal, TransferModal, TransactionRow y Success. Consulta perfil e historial cada tres segundos para reflejar cambios entre clientes; no utiliza WebSockets.
+
+src/Modal.tsx
+Es el contenedor reutilizable de las ventanas de recarga y transferencia. Recibe título, contenido y una función para cerrar. Se puede cerrar con la X o al pulsar el fondo.
+
+src/api.ts
+Centraliza las solicitudes fetch. Define la dirección http://localhost:4000/api, envía el token en Authorization: Bearer y convierte los errores del servidor en mensajes. También contiene money y shortDate para dar formato a valores y fechas.
+
+src/types.ts
+Define los tipos User y Transaction que usa TypeScript. Los tipos describen la forma de los datos, pero no los almacenan ni sustituyen las validaciones del servidor.
+
+src/styles.css
+Define colores, tamaños, tarjetas, formularios, modales y adaptación a pantallas pequeñas. Importa Tailwind y las fuentes DM Sans, Manrope y Playfair Display desde Google Fonts. Las fuentes externas necesitan conexión para descargarse.
+
+shared/registration.mjs
+Contiene validateRegistration, usada por frontend y backend para mantener las mismas reglas del registro.
+
+shared/registration.d.mts
+Describe los tipos de esa función JavaScript para que TypeScript pueda usarla desde React.
+
+shared/registration.test.mjs
+Prueba datos válidos e inválidos y comprueba que un error de correo o documento no se informe como un error del PIN.
+
+server/index.mjs
+Crea la API Express. Contiene las rutas de acceso, registro, perfil, búsqueda de destinatario, movimientos, recargas y transferencias. Calcula comisiones, puntos, niveles y límites. Verifica tokens y prepara los datos públicos del usuario.
+
+server/store.mjs
+Lee y escribe el archivo de datos. Antes de devolver los usuarios revisa los bloqueos temporales vencidos. Para guardar, escribe primero un archivo .tmp y luego lo renombra. Incluye resetStore, que vacía usuarios y movimientos, pero no está expuesta como una ruta de la API.
+
+server/login-lock.mjs
+Define tres intentos como máximo y 15 minutos de bloqueo. Registra fallos, calcula vencimientos, reinicia intentos y genera el mensaje de espera.
+
+server/login-lock.test.mjs
+Prueba el tercer intento, el vencimiento exacto del bloqueo, la conservación del plazo y la compatibilidad con bloqueos anteriores.
+
+server/smoke-test.mjs
+Prueba un flujo completo contra la API: registra dos usuarios, recarga, transfiere y revisa saldos y puntos. Crea datos de prueba en el almacenamiento que utiliza el servidor.
+
+README.md
+Contiene el resumen del proyecto, las instrucciones básicas y una lista de requisitos implementados.
+
+package.json y package-lock.json
+El primero declara paquetes y comandos. El segundo registra las versiones resueltas y dependencias indirectas para poder reproducir la instalación.
+
+vite.config.ts
+Configura los plugins de React y Tailwind para Vite.
+
+tsconfig.json, tsconfig.app.json y tsconfig.node.json
+Configuran las comprobaciones de TypeScript. Separan la aplicación y la configuración de Vite. No son archivos de datos de usuarios.
+
+.gitignore
+Evita incluir en Git node_modules, dist, .env, archivos de log, información de compilación y server/data/store.json. Por eso los datos locales no viajan automáticamente al clonar el repositorio.
+
+4. PAQUETES UTILIZADOS
+
+Versiones registradas en el package-lock.json revisado; no son una afirmación sobre las versiones más recientes disponibles en Internet.
+
+Paquete                    Versión    Función
+react                      19.3.0     Construir componentes y manejar estado.
+react-dom                  19.3.0     Mostrar React en el navegador.
+express                    5.2.1      Definir el servidor y sus rutas HTTP.
+cors                       2.8.6      Permitir solicitudes desde los clientes locales.
+jsonwebtoken               9.0.3      Crear y verificar tokens de sesión JWT.
+lucide-react               1.47.0     Iconos de la interfaz.
+tailwindcss                4.3.3      Clases utilitarias de estilos.
+@tailwindcss/vite           4.3.3      Integrar Tailwind con Vite.
+@vitejs/plugin-react        6.1.1      Integrar React con Vite.
+vite                       8.3.0      Servidor de desarrollo y compilación web.
+typescript                 5.9.3      Revisar tipos del frontend.
+@types/react               19.3.0     Definiciones de tipos de React.
+@types/react-dom            19.3.0     Definiciones de tipos de React DOM.
+concurrently               10.0.5     Ejecutar API y dos clientes juntos.
+
+También se usan módulos incluidos en Node.js: node:crypto para el PIN e identificadores, node:fs para archivos, node:path y node:url para rutas, y node:test y node:assert/strict para pruebas. No requieren instalar paquetes adicionales.
+
+La mayoría de dependencias aparecen como latest en package.json; las versiones concretas de esta copia están en package-lock.json.
+
+5. ¿DÓNDE ESTÁN LOS REQUISITOS Y LAS REGLAS DEL NEGOCIO?
+
+Un requisito dice qué debe hacer el sistema. Una regla de negocio define las condiciones para hacerlo, por ejemplo cuánto cobrar o cuál es el límite de una transferencia.
+
+No se encontró en los archivos revisados una especificación independiente y completa de los requisitos académicos originales. README.md contiene un resumen; las reglas ejecutables están distribuidas en el código:
+
+- Registro y formato de datos: shared/registration.mjs.
+- Documento y correo únicos: server/index.mjs, ruta de registro.
+- Tres fallos y 15 minutos de bloqueo: server/login-lock.mjs.
+- Sesión de 15 minutos: createToken en server/index.mjs.
+- Niveles, comisiones y límites: LEVELS y levelFor en server/index.mjs.
+- Recargas, transferencias y puntos: sus rutas en server/index.mjs.
+- Presentación de mensajes y formularios: Auth.tsx y Dashboard.tsx.
+
+Los requisitos no se guardan dentro de store.json. Allí se guarda el resultado de usar el sistema: cuentas, saldos, intentos y movimientos.
+
+Reglas del registro:
+
+- Nombre obligatorio y distinto de espacios en blanco. No se exige actualmente un número mínimo de palabras.
+- Documento de 6 a 12 dígitos, sin repetirse entre usuarios.
+- Correo con dirección y dominio completos, por ejemplo persona@gmail.com. Admite otros proveedores; no está limitado a Gmail. Se guarda sin espacios exteriores y en minúsculas. Debe ser único.
+- Celular de 10 dígitos, empezando por 3. No se exige actualmente que sea único.
+- PIN de exactamente 6 dígitos. Puede comenzar por cero.
+- Confirmación obligatoria de la validación de identidad simulada.
+- Se valida el formato del correo y celular, pero no se comprueba su existencia ni propiedad mediante mensajes.
+
+Reglas de acceso:
+
+- Se ingresa con documento y PIN.
+- Los fallos se cuentan por cuenta existente. Al tercer PIN incorrecto consecutivo se bloquea durante 15 minutos.
+- Ingresar correctamente reinicia los fallos.
+- Intentar ingresar durante el bloqueo no alarga su duración.
+- El vencimiento se guarda como blockedUntil. Al leer los datos después del vencimiento se activa la cuenta y se reinician los fallos; no hay un temporizador que deba permanecer abierto en el navegador.
+- Un bloqueo antiguo por tres fallos, sin fecha, recibe un plazo de 15 minutos la primera vez que lo lee la nueva lógica.
+- El JWT permite acceder a operaciones protegidas durante 15 minutos. El vencimiento de sesión y el bloqueo por fallos son mecanismos diferentes.
+
+Niveles y beneficios:
+
+Nivel       Puntos acumulados     Comisión    Límite diario de envío
+Bronze      0 a 499               5%          $500.000
+Silver      500 a 1.999           3%          $2.000.000
+Gold        2.000 a 9.999         1%          $5.000.000
+Platinum    Desde 10.000          0%          $20.000.000
+
+Reglas de recarga:
+
+- Mínimo $10.000 y máximo $20.000.000 por operación.
+- Sin comisión interna y sin puntos.
+- El origen puede indicarse como tarjeta débito o cuenta bancaria. Es una simulación, sin cobro bancario.
+
+Reglas de transferencia:
+
+- El destinatario debe existir, estar activo y ser diferente del remitente.
+- Se identifica por documento o número de cuenta.
+- El monto debe ser positivo y el saldo debe cubrir monto más comisión.
+- Comisión = monto multiplicado por la tarifa del nivel, redondeada al peso.
+- El receptor recibe el monto; al remitente se le descuenta monto más comisión.
+- El remitente gana la parte entera de monto / 10.000 en puntos. El receptor no gana puntos por recibir.
+- Se aplica el nivel anterior a completar esa operación. Los puntos nuevos pueden mejorar las operaciones posteriores.
+- El límite diario suma montos enviados, sin comisiones ni recargas. La fecha del día se calcula actualmente en UTC.
+- Para montos superiores a $1.000.000 se exige el OTP fijo de demostración 123456. También deben cumplirse el límite del nivel y el saldo.
+- El concepto se limita a 80 caracteres.
+- Se revisan las reglas en la vista previa y nuevamente al confirmar.
+
+Ejemplo: un usuario Bronze con $200.000 envía $100.000. La comisión es $5.000. Su saldo queda en $95.000, el receptor recibe $100.000 y el remitente gana 10 puntos.
+
+6. ¿DÓNDE SE ALMACENAN LOS DATOS?
+
+El archivo principal es server/data/store.json. Tiene dos listas:
+
+{
+  "users": [],
+  "transactions": []
+}
+
+Si no existe, la lectura parte de listas vacías. El archivo y la carpeta se crean al guardar por primera vez. Los datos continúan allí al cerrar el navegador o reiniciar el servidor.
+
+Cada usuario contiene:
+
+- id: identificador interno UUID.
+- document, fullName, email y phone: datos de identificación y contacto.
+- accountNumber: número de cuenta generado por el servidor.
+- status: estado, normalmente active o blocked.
+- failedAttempts: fallos consecutivos del PIN.
+- blockedUntil: vencimiento del bloqueo, cuando corresponde.
+- pinSalt y pinHash: información para verificar el PIN.
+- balance: saldo en pesos.
+- points: puntos acumulados.
+- createdAt: fecha de creación.
+
+El PIN original no se guarda como texto. Se genera una sal aleatoria y un hash con scrypt. Un hash sirve para comparar el PIN ingresado, no para recuperarlo. El perfil enviado al navegador excluye pinSalt y pinHash.
+
+Nivel, porcentaje de progreso, comisión y límite se calculan a partir de los puntos al preparar el perfil; no son campos persistentes del usuario en esta implementación.
+
+Cada movimiento contiene:
+
+- id y reference: identificador y referencia visible.
+- type: deposit o transfer.
+- amount: monto principal.
+- fee: comisión.
+- fromUserId y toUserId: usuario de origen y destino; en recargas el origen es null.
+- status: completed para las operaciones registradas.
+- description: concepto u origen de la recarga.
+- createdAt: fecha en formato ISO.
+
+direction y counterpart se calculan al consultar el historial, según quién lo está viendo. La API devuelve los últimos 50 movimientos del usuario; el panel presenta los primeros 6.
+
+En el navegador se guarda el JWT en localStorage con la clave walletuq_token. No es una copia de la base de datos. Cada origen tiene su propio localStorage; por eso los puertos 5173 y 5174 permiten mantener dos cuentas abiertas a la vez.
+
+Editar store.json manualmente cambia la información del sistema. Para conservar los datos de una demostración, se puede hacer una copia del archivo con el servidor detenido. No hace falta modificarlo para registrar, recargar ni transferir desde la aplicación.
+
+7. RUTAS DE LA API
+
+Todas parten de http://localhost:4000/api.
+
+GET  /health             Comprueba si el servidor responde.
+POST /auth/register      Valida y crea una cuenta; devuelve usuario y token.
+POST /auth/login         Verifica documento y PIN; devuelve usuario y token.
+GET  /me                 Devuelve el perfil de la sesión.
+GET  /users/lookup?q=...  Busca otro usuario por documento o cuenta.
+GET  /transactions       Devuelve el historial del usuario.
+POST /deposits           Registra una recarga simulada.
+POST /transfers/preview  Calcula destinatario, comisión, total, puntos y OTP.
+POST /transfers          Confirma el envío y guarda saldos y movimiento.
+
+Las rutas desde /me en adelante necesitan un JWT válido. La búsqueda /users/lookup existe en el backend, pero el formulario de transferencia actual obtiene los datos del destinatario mediante la vista previa.
+
+Respuestas frecuentes: 400 para datos inválidos, 401 para credenciales o sesión inválidas, 403 para cuenta no disponible, 404 para destinatario no encontrado, 409 para documento o correo repetido y 423 para cuenta bloqueada.
+
+8. CÓMO INSTALAR Y EJECUTAR
+
+Se necesita Node.js y npm. Según los requisitos de las dependencias fijadas en esta copia, usa Node.js 22.12 o superior compatible. Comprueba la instalación con:
+
+node --version
+npm --version
+
+En PowerShell, abre la carpeta:
+
+cd "C:\Users\MARIA JOSE\Desktop\wallet"
+
+Instala las dependencias respetando el archivo de versiones:
+
+npm ci
+
+El README también permite npm install. npm ci reproduce la instalación desde package-lock.json; npm install puede actualizar ese archivo según las dependencias declaradas.
+
+Inicia todo:
+
+npm run dev
+
+Este comando abre tres procesos en la terminal:
+
+- Backend: http://localhost:4000
+- Cliente A: http://localhost:5173
+- Cliente B: http://localhost:5174
+
+Abre las direcciones de los clientes en dos pestañas. Mantén la terminal abierta mientras usas el programa. Ctrl+C detiene los procesos iniciados por este comando.
+
+También se pueden ejecutar por separado, en terminales distintas:
+
+npm run dev:api
+npm run dev:a
+npm run dev:b
+
+Vite actualiza la interfaz al guardar cambios. El backend se ejecuta con node, sin modo watch, por lo que los cambios del servidor requieren reiniciarlo.
+
+Configuración:
+
+- PORT cambia el puerto del backend; por defecto es 4000.
+- JWT_SECRET permite configurar la clave de firma; hay una clave de desarrollo como valor por defecto.
+- La aplicación no incluye carga automática de .env. Las variables deben suministrarse al proceso, por ejemplo mediante variables de entorno de PowerShell.
+- Si cambias el puerto de la API, actualiza API_URL en src/api.ts.
+- CORS permite actualmente los clientes http://localhost:5173 y http://localhost:5174.
+
+9. CÓMO USAR LA APLICACIÓN
+
+Crear una cuenta:
+
+1) Abre el cliente A y selecciona Registrarme.
+2) Ingresa nombre, documento, correo completo, celular y PIN.
+3) Marca la confirmación de identidad simulada.
+4) Pulsa Crear mi cuenta. Si los datos son válidos y únicos, entrarás al panel con saldo y puntos en cero.
+
+Ingresar después:
+
+1) Selecciona Ingresar.
+2) Escribe el documento y PIN de la cuenta creada.
+3) Pulsa Entrar a mi billetera.
+4) Si se bloquea por tres PIN incorrectos, espera el plazo indicado antes de volver a intentar.
+
+Recargar:
+
+1) Pulsa Recargar.
+2) Escribe el monto, sin puntos ni símbolos; por ejemplo 200000.
+3) Elige tarjeta o cuenta bancaria como origen simulado.
+4) Confirma. El panel muestra el saldo y el movimiento.
+
+Transferir y demostrar dos usuarios:
+
+1) Crea otra cuenta en el cliente B con documento y correo diferentes.
+2) Copia su documento o su número de cuenta del panel.
+3) En el cliente A, con saldo disponible, pulsa Transferir.
+4) Ingresa el destinatario, el monto y un concepto opcional.
+5) Pulsa Continuar y revisa quién recibe, la comisión y el total.
+6) Si corresponde, escribe el OTP de demostración 123456.
+7) Confirma el envío.
+8) Revisa ambos clientes. El receptor debería ver el cambio en la siguiente actualización, aproximadamente tres segundos después.
+
+Para repetir el ejemplo de la sección 5, usa dos cuentas nuevas, recarga 200000 en A y transfiere 100000 a B. Así los saldos iniciales y el nivel coinciden con el ejemplo.
+
+Otras acciones funcionales:
+
+- El icono del ojo muestra u oculta el saldo.
+- El icono de copiar copia el número de cuenta.
+- El botón de salida, junto al usuario en la barra lateral, cierra la sesión de ese cliente.
+- En pantallas pequeñas, el botón de menú abre la barra lateral.
+
+10. QUÉ FUNCIONA Y QUÉ ESTÁ PENDIENTE
+
+Funcionan el registro, acceso, bloqueo temporal, consultas del panel, recarga simulada, vista previa, transferencia, puntos e historial reciente.
+
+Los botones Movimientos, Mis cuentas, Recompensas, Mi nivel, Pagar/QR, Ver todos y notificaciones no tienen actualmente un flujo completo conectado. El buscador superior no filtra movimientos. La fecha del saludo es un texto fijo. Que estos elementos aparezcan en pantalla no significa que esas funciones estén implementadas.
+
+No hay recuperación del PIN, verificación real por correo o SMS, biometría real ni conexión bancaria. El texto Cuenta verificada se presenta como parte de la demostración.
+
+El cierre de sesión elimina el token del navegador; no existe una lista de revocación de tokens en el servidor. La API rechaza tokens vencidos, pero el panel no tiene un contador que cierre la pantalla exactamente al cumplirse los 15 minutos: algunos errores se muestran al operar y el refresco periódico ignora sus errores.
+
+El guardado usa un archivo local y operaciones síncronas. Una transferencia modifica ambos saldos y agrega el movimiento antes de guardar el conjunto. Esto resulta adecuado para la demostración con un servidor, pero no equivale a las transacciones y controles de concurrencia de una base de datos para varias instancias.
+
+11. COMPILACIÓN Y PRUEBAS
+
+Compilar la interfaz:
+
+npm run build
+
+Ejecuta las comprobaciones de TypeScript y genera dist con HTML, JavaScript y CSS. El backend no se empaqueta dentro de dist.
+
+Consultar la compilación local:
+
+npm run preview
+
+Sirve la interfaz compilada, pero no inicia la API. El puerto habitual de preview es diferente de los dos orígenes permitidos por CORS; para probar allí operaciones de la API hay que ajustar los orígenes o servir la vista previa desde un origen permitido.
+
+Pruebas de validaciones y bloqueo, sin iniciar el servidor:
+
+node --test shared/registration.test.mjs server/login-lock.test.mjs
+
+Son nueve pruebas en los archivos revisados. Comprueban datos del registro, PIN, errores por campo, tres intentos, vencimiento y reinicio de fallos. Simulan el tiempo del bloqueo, por lo que no necesitan esperar 15 minutos.
+
+Prueba del flujo completo, con la API funcionando en el puerto 4000:
+
+npm run test:flow
+
+Crea dos cuentas, recarga $200.000 y envía $100.000. Comprueba saldo emisor de $95.000, saldo receptor de $100.000 y 10 puntos del emisor. Esta prueba agrega usuarios y movimientos a store.json; no limpia automáticamente esos datos.
+
+12. DÓNDE CAMBIAR CADA COSA
+
+- Colores, tamaños y adaptación visual: src/styles.css.
+- Registro, acceso y mensajes del formulario: src/Auth.tsx.
+- Reglas de formato del registro: shared/registration.mjs.
+- Panel, recarga y formulario de transferencia: src/Dashboard.tsx.
+- Contenedor de ventanas emergentes: src/Modal.tsx.
+- Número de intentos o tiempo de bloqueo: server/login-lock.mjs.
+- Duración del JWT: createToken en server/index.mjs.
+- Comisiones, puntos requeridos y límites: LEVELS y levelFor en server/index.mjs. Si cambias niveles o tarifas, revisa también los textos de niveles en Dashboard.tsx.
+- Mínimos y máximos de recarga, OTP y fórmula de puntos: rutas correspondientes de server/index.mjs; revisa también los textos de la interfaz.
+- Lectura, escritura o ubicación de los datos: server/store.mjs.
+- Dirección de la API que utiliza el navegador: src/api.ts.
+- Dependencias y comandos: package.json.
+
+13. PROBLEMAS FRECUENTES
+
+No conecta con el servidor:
+Comprueba que npm run dev o npm run dev:api esté activo y que http://localhost:4000/api/health responda. La interfaz y el backend son procesos distintos.
+
+Puerto ocupado:
+Los clientes usan strictPort y no eligen otro automáticamente. Detén la instancia anterior o revisa la configuración de puertos y CORS.
+
+No aparecen los cambios del backend:
+Detén y vuelve a iniciar el servidor. Guardar el archivo no reinicia el proceso actual.
+
+Correo o documento ya registrado:
+La cuenta ya existe en los datos locales. Inicia sesión con ella o utiliza datos distintos para la demostración.
+
+Saldo insuficiente:
+La transferencia descuenta monto más comisión. Recarga lo necesario y revisa el total de la vista previa.
+
+Límite diario superado:
+Se suman las transferencias realizadas en el día UTC. Recargar más dinero no aumenta el límite del nivel.
+
+No aparecen los datos después de copiar el proyecto:
+store.json está excluido de Git. Una copia del código sin ese archivo comienza sin las cuentas locales.
+
+Cuenta bloqueada:
+Espera el tiempo del mensaje. La fecha queda guardada en el servidor; cerrar la pestaña o reiniciar la API no elimina el plazo.
+
+Este documento describe el comportamiento del código revisado y sirve como guía del proyecto. No reemplaza una especificación académica original que no esté incluida en esta carpeta.

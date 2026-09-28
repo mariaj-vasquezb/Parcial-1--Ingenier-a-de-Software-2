@@ -1,0 +1,55 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { LOGIN_LOCK_MS, recordFailedLogin, refreshLoginLock, resetLoginAttempts, loginLockMessage } from './login-lock.mjs'
+const now = Date.parse('2026-09-28T12:00:00Z')
+const account = () => ({ status: 'active', failedAttempts: 0 })
+test('blocks exactly on the third failure and preserves the expiry on further attempts', () => {
+  const user = account()
+  recordFailedLogin(user, now)
+  recordFailedLogin(user, now)
+  assert.equal(user.status, 'active')
+  recordFailedLogin(user, now)
+  assert.equal(user.status, 'blocked')
+  assert.equal(Date.parse(user.blockedUntil), now + LOGIN_LOCK_MS)
+  recordFailedLogin(user, now + 1000)
+  assert.equal(user.failedAttempts, 3)
+  assert.equal(Date.parse(user.blockedUntil), now + LOGIN_LOCK_MS)
+  assert.match(loginLockMessage(user, now), /15 minutos/)
+})
+test('persisted lock expires exactly after 15 minutes and allows three new attempts', () => {
+  const user = account()
+  for (let i = 0; i < 3; i++) recordFailedLogin(user, now)
+  const restored = JSON.parse(JSON.stringify(user))
+  assert.equal(refreshLoginLock(restored, now + LOGIN_LOCK_MS - 1), false)
+  assert.equal(restored.status, 'blocked')
+  assert.match(loginLockMessage(restored, now + LOGIN_LOCK_MS - 1), /1 minuto\./)
+  assert.equal(refreshLoginLock(restored, now + LOGIN_LOCK_MS), true)
+  assert.equal(restored.status, 'active')
+  assert.equal(restored.failedAttempts, 0)
+  assert.equal(restored.blockedUntil, undefined)
+  recordFailedLogin(restored, now + LOGIN_LOCK_MS)
+  assert.equal(restored.status, 'active')
+  assert.equal(restored.failedAttempts, 1)
+})
+test('a successful login resets consecutive failures', () => {
+  const user = account()
+  recordFailedLogin(user, now)
+  recordFailedLogin(user, now)
+  resetLoginAttempts(user)
+  recordFailedLogin(user, now)
+  assert.equal(user.failedAttempts, 1)
+  assert.equal(user.status, 'active')
+})
+test('legacy failed-attempt blocks receive a fixed expiry once', () => {
+  const user = { status: 'blocked', failedAttempts: 3 }
+  assert.equal(refreshLoginLock(user, now), true)
+  assert.equal(refreshLoginLock(user, now + 1000), false)
+  assert.equal(Date.parse(user.blockedUntil), now + LOGIN_LOCK_MS)
+  assert.equal(refreshLoginLock(user, now + LOGIN_LOCK_MS), true)
+  assert.equal(user.status, 'active')
+})
+test('does not reactivate accounts blocked for other reasons', () => {
+  const user = { status: 'blocked', failedAttempts: 0 }
+  assert.equal(refreshLoginLock(user, now), false)
+  assert.equal(user.status, 'blocked')
+})
