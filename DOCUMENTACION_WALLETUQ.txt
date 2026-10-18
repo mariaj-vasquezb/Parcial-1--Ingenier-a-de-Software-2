@@ -1,12 +1,12 @@
 WALLETUQ — DOCUMENTACIÓN DEL PROGRAMA Y GUÍA DE USO
-Fecha: 28 de septiembre de 2026
+Fecha: 28 de septiembre de 2026 · Actualizado: 18 de octubre de 2026 (F-01 a F-06 del plan de requisitos)
 Basado en los archivos del proyecto revisados en esta fecha.
 
 1. ¿QUÉ ES Y PARA QUÉ SIRVE?
 
-WalletUQ es un prototipo académico de una billetera digital. Permite crear una cuenta, iniciar sesión con documento y PIN, recargar saldo simulado, transferir a otro usuario y consultar movimientos. Al transferir se ganan puntos, que permiten subir de nivel y reducir las comisiones.
+WalletUQ es un prototipo académico de una billetera digital. Permite crear una cuenta, iniciar sesión con documento y PIN o con la biometría del dispositivo, recargar saldo simulado, transferir a otro usuario, pagar a comercios afiliados con código QR y consultar movimientos. Al transferir o pagar se ganan puntos, que permiten subir de nivel y reducir las comisiones.
 
-Los valores se muestran en pesos colombianos (COP). No se mueve dinero real. Las recargas con tarjeta o cuenta bancaria, la conexión PSE, la verificación de identidad y el OTP son simulaciones.
+Los valores se muestran en pesos colombianos (COP). No se mueve dinero real. Las recargas con tarjeta o cuenta bancaria, la conexión PSE, la verificación de identidad y el envío del SMS con el código de confirmación son simulaciones. La biometría sí usa el sensor real del dispositivo mediante WebAuthn.
 
 2. ¿EN QUÉ ESTÁ HECHO?
 
@@ -47,8 +47,10 @@ wallet/
     App.tsx
     Auth.tsx
     Dashboard.tsx
+    Payments.tsx
     Modal.tsx
     api.ts
+    biometric.ts
     types.ts
     styles.css
   shared/
@@ -58,8 +60,20 @@ wallet/
   server/
     index.mjs
     store.mjs
+    wallet.mjs
+    kyc.mjs
+    payment-gateway.mjs
+    sessions.mjs
+    otp.mjs
+    qr.mjs
+    merchants.mjs
+    events.mjs
+    webauthn.mjs
     login-lock.mjs
     login-lock.test.mjs
+    wallet.test.mjs
+    payments.test.mjs
+    security.test.mjs
     smoke-test.mjs
     data/
       store.json
@@ -75,19 +89,25 @@ src/main.tsx
 Es el punto de entrada del frontend. Carga los estilos y renderiza App dentro de StrictMode, una herramienta de React para detectar problemas durante el desarrollo.
 
 src/App.tsx
-Controla si se muestra el acceso o el panel. Si encuentra un token guardado, consulta /api/me para comprobar la sesión. También permite cerrarla eliminando el token del navegador.
+Controla si se muestra el acceso o el panel. Si encuentra un token guardado, consulta /api/me para comprobar la sesión. Cierra la sesión (en el servidor y en el navegador) al pulsar salir o tras 15 minutos sin interacción, y muestra el motivo en la pantalla de acceso.
 
 src/Auth.tsx
-Contiene las pestañas Ingresar y Registrarme, los campos del formulario y los mensajes de error. Usa las validaciones compartidas y envía los datos a /auth/register o /auth/login. Al autenticarse, guarda el token y muestra el panel. Los errores del registro aparecen al salir de un campo o enviar el formulario y se actualizan al corregirlo.
+Contiene las pestañas Ingresar y Registrarme, los campos del formulario y los mensajes de error. Usa las validaciones compartidas y envía los datos a /auth/register o /auth/login. También ofrece Ingresar con biometría. Al autenticarse, guarda el token y muestra el panel. Los errores del registro aparecen al salir de un campo o enviar el formulario y se actualizan al corregirlo.
 
 src/Dashboard.tsx
-Contiene el panel con saldo, número de cuenta, puntos, nivel, comisión, límite diario y movimientos recientes. También contiene los componentes internos DepositModal, TransferModal, TransactionRow y Success. Consulta perfil e historial cada tres segundos para reflejar cambios entre clientes; no utiliza WebSockets.
+Contiene el panel con saldo, número de cuenta, puntos, nivel, comisión, límite diario y movimientos recientes, además del botón para activar o desactivar la biometría. También contiene los componentes internos DepositModal (tarjeta o PSE), TransferModal (con el código de confirmación), TransactionRow y Success. Se suscribe a /api/events (Server-Sent Events) y recarga perfil e historial apenas el servidor avisa de un movimiento; cada 15 segundos hace además una consulta de respaldo que no cuenta como actividad.
+
+src/Payments.tsx
+Contiene PayModal: lee el QR con la cámara (librería jsQR), desde una imagen subida o pegando el código; pide el monto si el QR no lo trae, muestra comercio, comisión, puntos y total, y confirma el pago. Incluye la lista de QR de los comercios de prueba con opción de descargarlos.
+
+src/biometric.ts
+Registra y usa la biometría del dispositivo con @simplewebauthn/browser y traduce las cancelaciones del diálogo del sistema a mensajes en español.
 
 src/Modal.tsx
 Es el contenedor reutilizable de las ventanas de recarga y transferencia. Recibe título, contenido y una función para cerrar. Se puede cerrar con la X o al pulsar el fondo.
 
 src/api.ts
-Centraliza las solicitudes fetch. Define la dirección http://localhost:4000/api, envía el token en Authorization: Bearer y convierte los errores del servidor en mensajes. También contiene money y shortDate para dar formato a valores y fechas.
+Centraliza las solicitudes fetch. Define la dirección http://localhost:4000/api, envía el token en Authorization: Bearer y convierte los errores del servidor en ApiError con su código HTTP. Las consultas automáticas se marcan con la cabecera X-WalletUQ-Background para que no extiendan la sesión. También contiene money y shortDate para dar formato a valores y fechas.
 
 src/types.ts
 Define los tipos User y Transaction que usa TypeScript. Los tipos describen la forma de los datos, pero no los almacenan ni sustituyen las validaciones del servidor.
@@ -105,10 +125,37 @@ shared/registration.test.mjs
 Prueba datos válidos e inválidos y comprueba que un error de correo o documento no se informe como un error del PIN.
 
 server/index.mjs
-Crea la API Express. Contiene las rutas de acceso, registro, perfil, búsqueda de destinatario, movimientos, recargas y transferencias. Calcula comisiones, puntos, niveles y límites. Verifica tokens y prepara los datos públicos del usuario.
+Crea la API Express. Contiene las rutas de acceso, biometría, registro, perfil, eventos, búsqueda de destinatario, movimientos, recargas, transferencias y pagos QR. Verifica token y sesión y prepara los datos públicos del usuario. Las reglas viven en los módulos siguientes.
+
+server/wallet.mjs
+Niveles, comisiones, límites diarios (día calendario de Colombia), puntos, cotización de transferencias y pagos, y referencias únicas. Define WalletError, que lleva el código HTTP de cada rechazo de negocio.
+
+server/kyc.mjs
+Proveedor KYC simulado (IF-010). Rechaza los documentos terminados en 0000 para poder probar la validación rechazada.
+
+server/payment-gateway.mjs
+Pasarelas simuladas de tarjeta y PSE: valida número (Luhn), vencimiento y CVV; aprueba o rechaza según las tarjetas y el banco de prueba.
+
+server/sessions.mjs
+Sesiones del servidor con cierre tras 15 minutos sin actividad.
+
+server/otp.mjs
+Código de confirmación de 6 dígitos para transferencias superiores a $1.000.000: vence en 5 minutos, es de un solo uso, admite 3 intentos y solo sirve para el destinatario y monto que se previsualizaron.
+
+server/qr.mjs
+Genera y valida el contenido de los QR de comercio (walletuq://pagar?...) firmado con HMAC, para que no se pueda cambiar el comercio ni el monto.
+
+server/merchants.mjs
+Comercios afiliados de prueba que se crean automáticamente: Café Universitario UQ (QR con monto fijo de $12.000), Librería Centro Armenia (monto libre) y Minimercado El Norte (inactivo).
+
+server/events.mjs
+Mantiene las conexiones Server-Sent Events de cada usuario y les avisa cuando cambia su billetera.
+
+server/webauthn.mjs
+Opciones y verificación de WebAuthn con @simplewebauthn/server. Solo se guarda la clave pública; la huella o el rostro nunca salen del dispositivo.
 
 server/store.mjs
-Lee y escribe el archivo de datos. Antes de devolver los usuarios revisa los bloqueos temporales vencidos. Para guardar, escribe primero un archivo .tmp y luego lo renombra. Incluye resetStore, que vacía usuarios y movimientos, pero no está expuesta como una ruta de la API.
+Lee y escribe el archivo de datos. Antes de devolver los datos completa las colecciones que falten (archivos de versiones anteriores), crea los comercios de prueba y revisa los bloqueos temporales vencidos. Para guardar, escribe primero un archivo .tmp y luego lo renombra. Incluye resetStore, que vacía todos los datos, pero no está expuesta como una ruta de la API.
 
 server/login-lock.mjs
 Define tres intentos como máximo y 15 minutos de bloqueo. Registra fallos, calcula vencimientos, reinicia intentos y genera el mensaje de espera.
@@ -116,8 +163,11 @@ Define tres intentos como máximo y 15 minutos de bloqueo. Registra fallos, calc
 server/login-lock.test.mjs
 Prueba el tercer intento, el vencimiento exacto del bloqueo, la conservación del plazo y la compatibilidad con bloqueos anteriores.
 
+server/wallet.test.mjs, server/payments.test.mjs y server/security.test.mjs
+Prueban niveles y comisiones, límite diario en hora de Colombia, saldo insuficiente, KYC, tarjetas y PSE, QR alterados, inactividad de la sesión, código de confirmación y retos biométricos.
+
 server/smoke-test.mjs
-Prueba un flujo completo contra la API: registra dos usuarios, recarga, transfiere y revisa saldos y puntos. Crea datos de prueba en el almacenamiento que utiliza el servidor.
+Prueba un flujo completo contra la API de F-01 a F-06: KYC rechazado, documento duplicado, recargas aprobadas y rechazadas, transferencia, pago QR, comercio inactivo, QR alterado y cierre de sesión. Crea datos de prueba en el almacenamiento que utiliza el servidor.
 
 README.md
 Contiene el resumen del proyecto, las instrucciones básicas y una lista de requisitos implementados.
@@ -153,8 +203,13 @@ typescript                 5.9.3      Revisar tipos del frontend.
 @types/react               19.3.0     Definiciones de tipos de React.
 @types/react-dom            19.3.0     Definiciones de tipos de React DOM.
 concurrently               10.0.5     Ejecutar API y dos clientes juntos.
+@simplewebauthn/server     14.0.3     Verificar la biometría (WebAuthn) en la API.
+@simplewebauthn/browser    14.0.0     Pedir la biometría al dispositivo desde el navegador.
+qrcode                     1.5.4      Dibujar los QR de los comercios de prueba.
+jsqr                       1.4.0      Leer QR desde la cámara o una imagen.
+@types/qrcode              1.5.6      Definiciones de tipos de qrcode.
 
-También se usan módulos incluidos en Node.js: node:crypto para el PIN e identificadores, node:fs para archivos, node:path y node:url para rutas, y node:test y node:assert/strict para pruebas. No requieren instalar paquetes adicionales.
+También se usan módulos incluidos en Node.js: node:crypto para el PIN, identificadores, códigos de confirmación y firmas de QR, node:fs para archivos, node:path y node:url para rutas, y node:test y node:assert/strict para pruebas. No requieren instalar paquetes adicionales.
 
 La mayoría de dependencias aparecen como latest en package.json; las versiones concretas de esta copia están en package-lock.json.
 
@@ -165,12 +220,24 @@ Un requisito dice qué debe hacer el sistema. Una regla de negocio define las co
 No se encontró en los archivos revisados una especificación independiente y completa de los requisitos académicos originales. README.md contiene un resumen; las reglas ejecutables están distribuidas en el código:
 
 - Registro y formato de datos: shared/registration.mjs.
-- Documento y correo únicos: server/index.mjs, ruta de registro.
+- Documento y correo únicos: server/index.mjs, ruta de registro. Validación de identidad: server/kyc.mjs.
 - Tres fallos y 15 minutos de bloqueo: server/login-lock.mjs.
-- Sesión de 15 minutos: createToken en server/index.mjs.
-- Niveles, comisiones y límites: LEVELS y levelFor en server/index.mjs.
-- Recargas, transferencias y puntos: sus rutas en server/index.mjs.
-- Presentación de mensajes y formularios: Auth.tsx y Dashboard.tsx.
+- Cierre de sesión tras 15 minutos de inactividad: server/sessions.mjs y src/App.tsx.
+- Biometría: server/webauthn.mjs y src/biometric.ts.
+- Niveles, comisiones, límites y puntos: server/wallet.mjs.
+- Pasarelas de recarga: server/payment-gateway.mjs.
+- Código de confirmación: server/otp.mjs.
+- QR y comercios: server/qr.mjs y server/merchants.mjs.
+- Presentación de mensajes y formularios: Auth.tsx, Dashboard.tsx y Payments.tsx.
+
+Trazabilidad con el plan de requisitos (Plan_de_Requisitos_WalletUQ.xlsx):
+
+F-01 Registrar usuario          SWR-001  POST /auth/register, kyc.mjs
+F-02 Autenticar usuario         SWR-002  /auth/login, /auth/biometric/*, login-lock.mjs, sessions.mjs, webauthn.mjs
+F-03 Consultar panel financiero SWR-003  GET /me, GET /events, events.mjs
+F-04 Recargar saldo             SWR-004  POST /deposits, payment-gateway.mjs
+F-05 Transferir saldo           SWR-005  /transfers/*, wallet.mjs, otp.mjs
+F-06 Pagar a comercio por QR    SWR-006  /payments/*, qr.mjs, merchants.mjs, src/Payments.tsx
 
 Los requisitos no se guardan dentro de store.json. Allí se guarda el resultado de usar el sistema: cuentas, saldos, intentos y movimientos.
 
@@ -182,17 +249,18 @@ Reglas del registro:
 - Celular de 10 dígitos, empezando por 3. No se exige actualmente que sea único.
 - PIN de exactamente 6 dígitos. Puede comenzar por cero.
 - Confirmación obligatoria de la validación de identidad simulada.
+- La cuenta solo se crea si el proveedor KYC aprueba la identidad. En la simulación, un documento terminado en 0000 se rechaza (respuesta 422) y no se crea nada.
 - Se valida el formato del correo y celular, pero no se comprueba su existencia ni propiedad mediante mensajes.
 
 Reglas de acceso:
 
-- Se ingresa con documento y PIN.
+- Se ingresa con documento y PIN o, si se activó en el panel, con documento y la biometría del dispositivo.
 - Los fallos se cuentan por cuenta existente. Al tercer PIN incorrecto consecutivo se bloquea durante 15 minutos.
 - Ingresar correctamente reinicia los fallos.
 - Intentar ingresar durante el bloqueo no alarga su duración.
 - El vencimiento se guarda como blockedUntil. Al leer los datos después del vencimiento se activa la cuenta y se reinician los fallos; no hay un temporizador que deba permanecer abierto en el navegador.
 - Un bloqueo antiguo por tres fallos, sin fecha, recibe un plazo de 15 minutos la primera vez que lo lee la nueva lógica.
-- El JWT permite acceder a operaciones protegidas durante 15 minutos. El vencimiento de sesión y el bloqueo por fallos son mecanismos diferentes.
+- Cada ingreso abre una sesión en el servidor. La sesión se cierra tras 15 minutos sin actividad del usuario; cada acción la renueva, pero las consultas automáticas del panel no. El navegador también cuenta la inactividad y vuelve a la pantalla de acceso con el motivo. Salir cierra la sesión en el servidor, así que el token deja de servir. El cierre por inactividad y el bloqueo por fallos son mecanismos diferentes.
 
 Niveles y beneficios:
 
@@ -206,7 +274,17 @@ Reglas de recarga:
 
 - Mínimo $10.000 y máximo $20.000.000 por operación.
 - Sin comisión interna y sin puntos.
-- El origen puede indicarse como tarjeta débito o cuenta bancaria. Es una simulación, sin cobro bancario.
+- Con tarjeta se valida número (Luhn), vencimiento MM/AA y CVV. 4242 4242 4242 4242 se aprueba y 4000 0000 0000 0002 se rechaza. Solo se guardan los últimos 4 dígitos.
+- Con PSE se elige el banco. "Banco de Pruebas (rechaza)" simula un débito rechazado.
+- Aprobada o rechazada, la recarga queda registrada con su estado y la respuesta del proveedor. Una rechazada no cambia el saldo. Es una simulación, sin cobro bancario.
+
+Reglas de pago con QR:
+
+- El QR contiene el código del comercio y, opcionalmente, un monto fijo, firmados con HMAC. Un QR alterado o ajeno se rechaza.
+- El comercio debe existir y estar activo.
+- Si el QR trae monto, se usa ese; si no, el cliente lo escribe.
+- La comisión usa las mismas tasas por nivel que las transferencias. El comercio recibe el monto; al cliente se le descuenta monto más comisión, en una sola escritura.
+- El cliente gana la parte entera de monto / 10.000 en puntos.
 
 Reglas de transferencia:
 
@@ -217,8 +295,9 @@ Reglas de transferencia:
 - El receptor recibe el monto; al remitente se le descuenta monto más comisión.
 - El remitente gana la parte entera de monto / 10.000 en puntos. El receptor no gana puntos por recibir.
 - Se aplica el nivel anterior a completar esa operación. Los puntos nuevos pueden mejorar las operaciones posteriores.
-- El límite diario suma montos enviados, sin comisiones ni recargas. La fecha del día se calcula actualmente en UTC.
-- Para montos superiores a $1.000.000 se exige el OTP fijo de demostración 123456. También deben cumplirse el límite del nivel y el saldo.
+- El límite diario suma montos enviados, sin comisiones ni recargas. El día se cuenta en hora de Colombia (America/Bogota).
+- Para montos superiores a $1.000.000 se exige un código de 6 dígitos enviado por SMS simulado. Vence en 5 minutos, sirve una sola vez, admite 3 intentos y solo vale para el destinatario y el monto previsualizados. Como no hay proveedor SMS real, el código se muestra en pantalla y en la consola de la API. También deben cumplirse el límite del nivel y el saldo; con los límites actuales, solo desde Silver se puede enviar más de $1.000.000 en un día.
+- Ambos saldos, los puntos y el movimiento se modifican en memoria y se guardan con una sola escritura. Si algo falla antes de guardar, ningún saldo cambia.
 - El concepto se limita a 80 caracteres.
 - Se revisan las reglas en la vista previa y nuevamente al confirmar.
 
@@ -226,12 +305,17 @@ Ejemplo: un usuario Bronze con $200.000 envía $100.000. La comisión es $5.000.
 
 6. ¿DÓNDE SE ALMACENAN LOS DATOS?
 
-El archivo principal es server/data/store.json. Tiene dos listas:
+El archivo principal es server/data/store.json. Tiene cinco listas:
 
 {
   "users": [],
-  "transactions": []
+  "transactions": [],
+  "sessions": [],
+  "otps": [],
+  "merchants": []
 }
+
+sessions guarda las sesiones abiertas y su última actividad; otps, los códigos de confirmación pendientes (solo su hash); merchants, los comercios afiliados y lo que han recibido. Un archivo de una versión anterior se completa automáticamente al leerlo.
 
 Si no existe, la lectura parte de listas vacías. El archivo y la carpeta se crean al guardar por primera vez. Los datos continúan allí al cerrar el navegador o reiniciar el servidor.
 
@@ -246,6 +330,8 @@ Cada usuario contiene:
 - pinSalt y pinHash: información para verificar el PIN.
 - balance: saldo en pesos.
 - points: puntos acumulados.
+- kycReference: referencia de la validación de identidad aprobada.
+- passkeys: claves públicas de la biometría registrada, cuando se activó.
 - createdAt: fecha de creación.
 
 El PIN original no se guarda como texto. Se genera una sal aleatoria y un hash con scrypt. Un hash sirve para comparar el PIN ingresado, no para recuperarlo. El perfil enviado al navegador excluye pinSalt y pinHash.
@@ -255,12 +341,14 @@ Nivel, porcentaje de progreso, comisión y límite se calculan a partir de los p
 Cada movimiento contiene:
 
 - id y reference: identificador y referencia visible.
-- type: deposit o transfer.
+- type: deposit, transfer o payment.
 - amount: monto principal.
 - fee: comisión.
-- fromUserId y toUserId: usuario de origen y destino; en recargas el origen es null.
-- status: completed para las operaciones registradas.
-- description: concepto u origen de la recarga.
+- fromUserId y toUserId: usuario de origen y destino; en recargas el origen es null y en pagos el destino es null.
+- merchantCode y merchantName: comercio, en los pagos QR.
+- status: completed, o failed para una recarga rechazada.
+- failureReason y providerReference: motivo del rechazo y autorización del proveedor, en las recargas.
+- description: concepto, origen de la recarga o "Pago con QR".
 - createdAt: fecha en formato ISO.
 
 direction y counterpart se calculan al consultar el historial, según quién lo está viendo. La API devuelve los últimos 50 movimientos del usuario; el panel presenta los primeros 6.
@@ -273,19 +361,32 @@ Editar store.json manualmente cambia la información del sistema. Para conservar
 
 Todas parten de http://localhost:4000/api.
 
-GET  /health             Comprueba si el servidor responde.
-POST /auth/register      Valida y crea una cuenta; devuelve usuario y token.
-POST /auth/login         Verifica documento y PIN; devuelve usuario y token.
-GET  /me                 Devuelve el perfil de la sesión.
-GET  /users/lookup?q=...  Busca otro usuario por documento o cuenta.
-GET  /transactions       Devuelve el historial del usuario.
-POST /deposits           Registra una recarga simulada.
-POST /transfers/preview  Calcula destinatario, comisión, total, puntos y OTP.
-POST /transfers          Confirma el envío y guarda saldos y movimiento.
+GET    /health                     Comprueba si el servidor responde.
+POST   /auth/register              Valida, consulta el KYC y crea una cuenta; devuelve usuario y token.
+POST   /auth/login                 Verifica documento y PIN; devuelve usuario y token.
+POST   /auth/biometric/options     Prepara el reto biométrico para un documento.
+POST   /auth/biometric/verify      Verifica la biometría; devuelve usuario y token.
+POST   /auth/logout                Cierra la sesión en el servidor.
+POST   /session/ping               Informa actividad del usuario sin otra operación.
+POST   /biometric/register/options Prepara el registro de la biometría.
+POST   /biometric/register/verify  Guarda la clave pública de la biometría.
+DELETE /biometric                  Desactiva la biometría.
+GET    /me                         Devuelve el perfil de la sesión.
+GET    /events?token=...           Canal Server-Sent Events con avisos de cambios.
+GET    /users/lookup?q=...         Busca otro usuario por documento o cuenta.
+GET    /transactions               Devuelve el historial del usuario.
+GET    /deposits/banks             Lista los bancos PSE.
+POST   /deposits                   Procesa una recarga con tarjeta o PSE.
+POST   /transfers/preview          Calcula destinatario, comisión, total, puntos y si requiere código.
+POST   /transfers/otp              Envía el código de confirmación por SMS simulado.
+POST   /transfers                  Confirma el envío y guarda saldos y movimiento.
+GET    /merchants                  Lista los comercios de prueba con el contenido de su QR.
+POST   /payments/preview           Valida el QR y el comercio; calcula comisión, total y puntos.
+POST   /payments                   Confirma el pago QR.
 
-Las rutas desde /me en adelante necesitan un JWT válido. La búsqueda /users/lookup existe en el backend, pero el formulario de transferencia actual obtiene los datos del destinatario mediante la vista previa.
+Las rutas desde /auth/logout necesitan una sesión válida (salvo /events, que recibe el token en la consulta porque EventSource no admite cabeceras). La búsqueda /users/lookup existe en el backend, pero el formulario de transferencia actual obtiene los datos del destinatario mediante la vista previa.
 
-Respuestas frecuentes: 400 para datos inválidos, 401 para credenciales o sesión inválidas, 403 para cuenta no disponible, 404 para destinatario no encontrado, 409 para documento o correo repetido y 423 para cuenta bloqueada.
+Respuestas frecuentes: 400 para datos inválidos o código incorrecto, 401 para credenciales o sesión inválidas o cerradas por inactividad, 402 para recarga rechazada por el proveedor, 403 para cuenta no disponible, 404 para destinatario o comercio no encontrado, 409 para documento o correo repetido o comercio inactivo, 422 para KYC rechazado y 423 para cuenta bloqueada.
 
 8. CÓMO INSTALAR Y EJECUTAR
 
@@ -328,6 +429,8 @@ Configuración:
 
 - PORT cambia el puerto del backend; por defecto es 4000.
 - JWT_SECRET permite configurar la clave de firma; hay una clave de desarrollo como valor por defecto.
+- QR_SECRET firma los QR de los comercios; también tiene un valor de desarrollo. Si cambia, los QR ya descargados dejan de ser válidos.
+- WEBAUTHN_RP_ID es el dominio de la biometría; por defecto localhost. Abre la aplicación como localhost (no 127.0.0.1) para que la biometría funcione.
 - La aplicación no incluye carga automática de .env. Las variables deben suministrarse al proceso, por ejemplo mediante variables de entorno de PowerShell.
 - Si cambias el puerto de la API, actualiza API_URL en src/api.ts.
 - CORS permite actualmente los clientes http://localhost:5173 y http://localhost:5174.
@@ -339,7 +442,7 @@ Crear una cuenta:
 1) Abre el cliente A y selecciona Registrarme.
 2) Ingresa nombre, documento, correo completo, celular y PIN.
 3) Marca la confirmación de identidad simulada.
-4) Pulsa Crear mi cuenta. Si los datos son válidos y únicos, entrarás al panel con saldo y puntos en cero.
+4) Pulsa Crear mi cuenta. Si los datos son válidos, únicos y el KYC los aprueba, entrarás al panel con saldo y puntos en cero. Para ver un KYC rechazado, usa un documento terminado en 0000.
 
 Ingresar después:
 
@@ -348,12 +451,24 @@ Ingresar después:
 3) Pulsa Entrar a mi billetera.
 4) Si se bloquea por tres PIN incorrectos, espera el plazo indicado antes de volver a intentar.
 
+Ingresar con biometría:
+
+1) En el panel, pulsa Activar biometría y confirma con la huella, el rostro o el método del dispositivo.
+2) Después de salir, escribe solo el documento y pulsa Ingresar con biometría.
+
 Recargar:
 
 1) Pulsa Recargar.
 2) Escribe el monto, sin puntos ni símbolos; por ejemplo 200000.
-3) Elige tarjeta o cuenta bancaria como origen simulado.
-4) Confirma. El panel muestra el saldo y el movimiento.
+3) Con tarjeta, escribe 4242 4242 4242 4242, un vencimiento futuro y un CVV de 3 dígitos. Con cuenta bancaria, elige el banco PSE.
+4) Confirma. El panel muestra el saldo y el movimiento. Una recarga rechazada aparece tachada en el historial y no cambia el saldo.
+
+Pagar con QR:
+
+1) Pulsa Pagar y permite el uso de la cámara.
+2) Apunta al QR del comercio. También puedes subir una imagen del QR o pegar su código.
+3) Para probar sin otro dispositivo, pulsa Ver QR de comercios de prueba: allí puedes descargarlos o pagar directamente.
+4) Si el QR no trae monto, escríbelo. Revisa comisión, puntos y total, y pulsa Confirmar pago.
 
 Transferir y demostrar dos usuarios:
 
@@ -362,9 +477,9 @@ Transferir y demostrar dos usuarios:
 3) En el cliente A, con saldo disponible, pulsa Transferir.
 4) Ingresa el destinatario, el monto y un concepto opcional.
 5) Pulsa Continuar y revisa quién recibe, la comisión y el total.
-6) Si corresponde, escribe el OTP de demostración 123456.
+6) Si el monto supera $1.000.000, escribe el código que aparece en el SMS simulado.
 7) Confirma el envío.
-8) Revisa ambos clientes. El receptor debería ver el cambio en la siguiente actualización, aproximadamente tres segundos después.
+8) Revisa ambos clientes. El receptor ve el cambio de inmediato (menos de 2 segundos).
 
 Para repetir el ejemplo de la sección 5, usa dos cuentas nuevas, recarga 200000 en A y transfiere 100000 a B. Así los saldos iniciales y el nivel coinciden con el ejemplo.
 
@@ -377,13 +492,11 @@ Otras acciones funcionales:
 
 10. QUÉ FUNCIONA Y QUÉ ESTÁ PENDIENTE
 
-Funcionan el registro, acceso, bloqueo temporal, consultas del panel, recarga simulada, vista previa, transferencia, puntos e historial reciente.
+Funcionan F-01 a F-06 del plan de requisitos: registro con KYC, acceso con PIN o biometría, bloqueo temporal, cierre por inactividad, panel en tiempo real, recargas con tarjeta o PSE (aprobadas y rechazadas), transferencia con código de confirmación, pago QR, puntos e historial reciente.
 
-Los botones Movimientos, Mis cuentas, Recompensas, Mi nivel, Pagar/QR, Ver todos y notificaciones no tienen actualmente un flujo completo conectado. El buscador superior no filtra movimientos. La fecha del saludo es un texto fijo. Que estos elementos aparezcan en pantalla no significa que esas funciones estén implementadas.
+Los botones Movimientos, Mis cuentas, Recompensas, Mi nivel, Ver todos y notificaciones no tienen actualmente un flujo completo conectado (corresponden a funcionalidades posteriores del plan, como F-07 a F-15). El buscador superior no filtra movimientos. Que estos elementos aparezcan en pantalla no significa que esas funciones estén implementadas.
 
-No hay recuperación del PIN, verificación real por correo o SMS, biometría real ni conexión bancaria. El texto Cuenta verificada se presenta como parte de la demostración.
-
-El cierre de sesión elimina el token del navegador; no existe una lista de revocación de tokens en el servidor. La API rechaza tokens vencidos, pero el panel no tiene un contador que cierre la pantalla exactamente al cumplirse los 15 minutos: algunos errores se muestran al operar y el refresco periódico ignora sus errores.
+No hay recuperación del PIN, verificación real por correo, proveedor SMS real ni conexión bancaria. El KYC y las pasarelas son simulaciones con datos de prueba. El texto Cuenta verificada se presenta como parte de la demostración.
 
 El guardado usa un archivo local y operaciones síncronas. Una transferencia modifica ambos saldos y agrega el movimiento antes de guardar el conjunto. Esto resulta adecuado para la demostración con un servidor, pero no equivale a las transacciones y controles de concurrencia de una base de datos para varias instancias.
 
@@ -401,17 +514,17 @@ npm run preview
 
 Sirve la interfaz compilada, pero no inicia la API. El puerto habitual de preview es diferente de los dos orígenes permitidos por CORS; para probar allí operaciones de la API hay que ajustar los orígenes o servir la vista previa desde un origen permitido.
 
-Pruebas de validaciones y bloqueo, sin iniciar el servidor:
+Pruebas unitarias, sin iniciar el servidor:
 
-node --test shared/registration.test.mjs server/login-lock.test.mjs
+npm test
 
-Son nueve pruebas en los archivos revisados. Comprueban datos del registro, PIN, errores por campo, tres intentos, vencimiento y reinicio de fallos. Simulan el tiempo del bloqueo, por lo que no necesitan esperar 15 minutos.
+Son 24 pruebas. Además del registro y el bloqueo, comprueban niveles y comisiones, límite diario en hora de Colombia, KYC, tarjetas y PSE, QR alterados, inactividad de la sesión, código de confirmación y retos biométricos. Simulan el tiempo, por lo que no necesitan esperar 15 minutos.
 
 Prueba del flujo completo, con la API funcionando en el puerto 4000:
 
 npm run test:flow
 
-Crea dos cuentas, recarga $200.000 y envía $100.000. Comprueba saldo emisor de $95.000, saldo receptor de $100.000 y 10 puntos del emisor. Esta prueba agrega usuarios y movimientos a store.json; no limpia automáticamente esos datos.
+Recorre F-01 a F-06: KYC rechazado, documento duplicado, dos recargas rechazadas y dos aprobadas de $100.000, una transferencia de $100.000, un pago QR de $12.000, comercio inactivo, QR alterado y cierre de sesión. Comprueba saldo emisor de $82.400, saldo receptor de $100.000, 11 puntos y las 2 recargas rechazadas registradas. Esta prueba agrega usuarios y movimientos a store.json; no limpia automáticamente esos datos.
 
 12. DÓNDE CAMBIAR CADA COSA
 
@@ -419,11 +532,14 @@ Crea dos cuentas, recarga $200.000 y envía $100.000. Comprueba saldo emisor de 
 - Registro, acceso y mensajes del formulario: src/Auth.tsx.
 - Reglas de formato del registro: shared/registration.mjs.
 - Panel, recarga y formulario de transferencia: src/Dashboard.tsx.
+- Pago QR y lista de QR de prueba: src/Payments.tsx.
 - Contenedor de ventanas emergentes: src/Modal.tsx.
 - Número de intentos o tiempo de bloqueo: server/login-lock.mjs.
-- Duración del JWT: createToken en server/index.mjs.
-- Comisiones, puntos requeridos y límites: LEVELS y levelFor en server/index.mjs. Si cambias niveles o tarifas, revisa también los textos de niveles en Dashboard.tsx.
-- Mínimos y máximos de recarga, OTP y fórmula de puntos: rutas correspondientes de server/index.mjs; revisa también los textos de la interfaz.
+- Tiempo de inactividad: SESSION_IDLE_MS en server/sessions.mjs y en src/App.tsx.
+- Comisiones, puntos requeridos, límites, mínimos de recarga y umbral del código de confirmación: server/wallet.mjs. Si cambias niveles o tarifas, revisa también los textos de niveles en Dashboard.tsx.
+- Vigencia e intentos del código de confirmación: server/otp.mjs.
+- Tarjetas y bancos de prueba: server/payment-gateway.mjs. Rechazo del KYC: server/kyc.mjs.
+- Comercios de prueba: server/merchants.mjs.
 - Lectura, escritura o ubicación de los datos: server/store.mjs.
 - Dirección de la API que utiliza el navegador: src/api.ts.
 - Dependencias y comandos: package.json.
@@ -446,7 +562,13 @@ Saldo insuficiente:
 La transferencia descuenta monto más comisión. Recarga lo necesario y revisa el total de la vista previa.
 
 Límite diario superado:
-Se suman las transferencias realizadas en el día UTC. Recargar más dinero no aumenta el límite del nivel.
+Se suman las transferencias realizadas en el día (hora de Colombia). Recargar más dinero no aumenta el límite del nivel.
+
+La cámara no abre en Pagar:
+El navegador necesita permiso de cámara y solo lo concede en localhost o HTTPS. Si no hay cámara, sube una imagen del QR o usa Ver QR de comercios de prueba.
+
+No aparece Ingresar con biometría o falla:
+El navegador debe soportar WebAuthn y la aplicación debe abrirse como localhost. Primero hay que activarla desde el panel en ese mismo dispositivo.
 
 No aparecen los datos después de copiar el proyecto:
 store.json está excluido de Git. Una copia del código sin ese archivo comienza sin las cuentas locales.

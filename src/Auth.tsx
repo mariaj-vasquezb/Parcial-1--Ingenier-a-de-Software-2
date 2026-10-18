@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react'
-import { ArrowRight, CheckCircle2, Eye, EyeOff, Fingerprint, LockKeyhole, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
-import { api } from './api'
+import { ArrowRight, CheckCircle2, Eye, EyeOff, Fingerprint, Info, LockKeyhole, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
+import { TOKEN_KEY, api, errorMessage } from './api'
+import { biometricSupported, loginWithBiometric } from './biometric'
 import { validateRegistration, type RegistrationField } from '../shared/registration.mjs'
 import type { User } from './types'
 
-type Props = { onAuthenticated: (token: string, user: User) => void }
+type Props = { notice?: string; onAuthenticated: (token: string, user: User) => void }
 
-export default function Auth({ onAuthenticated }: Props) {
+export default function Auth({ notice, onAuthenticated }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [showPin, setShowPin] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -30,8 +31,19 @@ export default function Auth({ onAuthenticated }: Props) {
     setLoading(true)
     try {
       const data = await api<{ token: string; user: User }>(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(form) })
-      localStorage.setItem('walletuq_token', data.token); onAuthenticated(data.token, data.user)
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Error inesperado') }
+      localStorage.setItem(TOKEN_KEY, data.token); onAuthenticated(data.token, data.user)
+    } catch (requestError) { setError(errorMessage(requestError)) }
+    finally { setLoading(false) }
+  }
+
+  const biometricLogin = async () => {
+    setError('')
+    if (!form.document) { setError('Ingresa tu documento para usar la biometría.'); return }
+    setLoading(true)
+    try {
+      const data = await loginWithBiometric(form.document)
+      localStorage.setItem(TOKEN_KEY, data.token); onAuthenticated(data.token, data.user)
+    } catch (requestError) { setError(errorMessage(requestError)) }
     finally { setLoading(false) }
   }
 
@@ -51,6 +63,7 @@ export default function Auth({ onAuthenticated }: Props) {
       <div className="w-full max-w-md">
         <div className="brand mb-10 lg:hidden"><span>W</span>Wallet<strong>UQ</strong></div>
         <div className="mb-7"><p className="text-xs font-bold uppercase tracking-[.18em] text-emerald-700">{mode === 'login' ? 'Qué bueno verte' : 'Abre tu billetera'}</p><h2 className="mt-2 text-3xl font-semibold tracking-[-.035em] text-slate-900">{mode === 'login' ? 'Inicia sesión' : 'Crea tu cuenta'}</h2><p className="mt-2 text-sm text-slate-500">{mode === 'login' ? 'Accede con tu documento y PIN.' : 'Completa tus datos. Solo tomará un minuto.'}</p></div>
+        {notice && <div role="status" className="auth-notice"><Info size={16}/>{notice}</div>}
         <div className="mb-6 grid grid-cols-2 rounded-xl bg-slate-200/60 p-1"><button className={`auth-tab ${mode === 'login' ? 'active' : ''}`} onClick={() => { setMode('login'); setError(''); setTouched({}) }}>Ingresar</button><button className={`auth-tab ${mode === 'register' ? 'active' : ''}`} onClick={() => { setMode('register'); setError(''); setTouched({}) }}>Registrarme</button></div>
         <form className="space-y-4" onSubmit={submit} noValidate={mode === 'register'}>
           {mode === 'register' && <><Field label="Nombre completo" error={fieldError('fullName')} errorId="fullName-error"><input required aria-invalid={Boolean(fieldError('fullName'))} aria-describedby={fieldError('fullName') ? 'fullName-error' : undefined} onBlur={() => blur('fullName')} value={form.fullName} onChange={(e) => update('fullName', e.target.value)} placeholder="Ana María Torres"/></Field><div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Field label="Correo" error={fieldError('email')} errorId="email-error"><input required type="email" aria-invalid={Boolean(fieldError('email'))} aria-describedby={fieldError('email') ? 'email-error' : undefined} onBlur={() => blur('email')} value={form.email} onChange={(e) => update('email', e.target.value)} placeholder="ana@email.com"/></Field><Field label="Celular" error={fieldError('phone')} errorId="phone-error"><input required type="tel" inputMode="numeric" maxLength={10} aria-invalid={Boolean(fieldError('phone'))} aria-describedby={fieldError('phone') ? 'phone-error' : undefined} onBlur={() => blur('phone')} value={form.phone} onChange={(e) => update('phone', e.target.value.replace(/\D/g,''))} placeholder="3001234567"/></Field></div></>}
@@ -60,8 +73,9 @@ export default function Auth({ onAuthenticated }: Props) {
           {mode === 'register' && fieldError('acceptedKyc') && <p role="alert" className="text-sm text-rose-700">{fieldError('acceptedKyc')}</p>}
           {error && <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
           <button className="primary-action" disabled={loading}>{loading ? 'Procesando…' : mode === 'login' ? 'Entrar a mi billetera' : 'Crear mi cuenta'}<ArrowRight size={18}/></button>
+          {mode === 'login' && biometricSupported() && <button type="button" className="biometric-action" disabled={loading} onClick={biometricLogin}><Fingerprint size={18}/>Ingresar con biometría</button>}
         </form>
-        <div className="mt-7 flex items-center justify-center gap-2 text-xs text-slate-400"><Fingerprint size={15}/><span>Datos protegidos · Sesión de 15 minutos</span></div>
+        <div className="mt-7 flex items-center justify-center gap-2 text-xs text-slate-400"><Fingerprint size={15}/><span>Datos protegidos · Cierre tras 15 minutos de inactividad</span></div>
       </div>
     </section>
   </div>
