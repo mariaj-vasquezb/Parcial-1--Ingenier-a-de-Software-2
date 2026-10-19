@@ -39,6 +39,10 @@ Registra un usuario distinto en cada cliente. Recarga saldo en el Cliente A y tr
 - Puntos: `floor(monto / 10.000)` por transferencias y pagos. Niveles Bronze, Silver, Gold y Platinum.
 - Historial compartido y persistente en JSON local. Interfaz responsive desde 320 px.
 
+## Principios SOLID
+
+El flujo de recargas aplica los cinco principios con proveedores intercambiables, contratos pequeños e inyección de dependencias. Consulta [SOLID.md](./SOLID.md) para ver cada principio, sus archivos y ejemplos ejecutables en `server/deposit-service.test.mjs`.
+
 ## Pruebas
 
 ```bash

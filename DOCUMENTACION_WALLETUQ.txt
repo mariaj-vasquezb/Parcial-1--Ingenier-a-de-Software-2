@@ -494,7 +494,7 @@ Otras acciones funcionales:
 
 Funcionan F-01 a F-06 del plan de requisitos: registro con KYC, acceso con PIN o biometría, bloqueo temporal, cierre por inactividad, panel en tiempo real, recargas con tarjeta o PSE (aprobadas y rechazadas), transferencia con código de confirmación, pago QR, puntos e historial reciente.
 
-Los botones Movimientos, Mis cuentas, Recompensas, Mi nivel, Ver todos y notificaciones no tienen actualmente un flujo completo conectado (corresponden a funcionalidades posteriores del plan, como F-07 a F-15). El buscador superior no filtra movimientos. Que estos elementos aparezcan en pantalla no significa que esas funciones estén implementadas.
+Los botones Movimientos, Mis cuentas, Recompensas, Mi nivel, Ver todos y notificaciones no tienen actualmente un flujo completo conectado. El buscador superior no filtra movimientos. Que estos elementos aparezcan en pantalla no significa que esas funciones estén implementadas.
 
 No hay recuperación del PIN, verificación real por correo, proveedor SMS real ni conexión bancaria. El KYC y las pasarelas son simulaciones con datos de prueba. El texto Cuenta verificada se presenta como parte de la demostración.
 

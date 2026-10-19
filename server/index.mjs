@@ -5,14 +5,23 @@ import cors from 'cors'
 import jwt from 'jsonwebtoken'
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { readStore, writeStore } from './store.mjs'
-import { MAX_DEPOSIT, MIN_DEPOSIT, WalletError, cop, levelInfo, newReference, parseAmount, quotePayment, quoteTransfer } from './wallet.mjs'
+import { WalletError, levelInfo, newReference, parseAmount, quotePayment, quoteTransfer } from './wallet.mjs'
 import { verifyIdentity } from './kyc.mjs'
-import { PSE_BANKS, chargeCard, debitPse, findPseBank, validateCard } from './payment-gateway.mjs'
+import { PSE_BANKS } from './payment-gateway.mjs'
+import { cardDepositProvider, pseDepositProvider } from './deposit-providers.mjs'
+import { createDepositService } from './deposit-service.mjs'
 import { closeSession, openSession, sessionExpired, touchSession } from './sessions.mjs'
 import { consumeOtp, issueOtp, OTP_TTL_MS } from './otp.mjs'
 import { merchantQrPayload, readMerchantQr } from './qr.mjs'
 import { notify, subscribe } from './events.mjs'
 import { authenticationOptions, registrationOptions, rememberChallenge, takeChallenge, verifyAuthentication, verifyRegistration } from './webauthn.mjs'
+
+// Composición de adaptadores concretos: el servicio depende de sus contratos (DIP).
+const deposits = createDepositService({
+  providers: new Map([['card', cardDepositProvider], ['bank', pseDepositProvider]]),
+  repository: { save: writeStore },
+  notifier: { notify },
+})
 
 const app = express()
 const PORT = Number(process.env.PORT || 4000)
@@ -24,7 +33,6 @@ app.use(cors({ origin: CLIENT_ORIGINS }))
 app.use(express.json({ limit: '100kb' }))
 
 const hashPin = (pin, salt) => scryptSync(pin, salt, 64).toString('hex')
-const digits = (value) => String(value ?? '').replace(/\D/g, '')
 const publicUser = (user) => ({ id: user.id, document: user.document, fullName: user.fullName, email: user.email, phone: user.phone, accountNumber: user.accountNumber, status: user.status, balance: user.balance, points: user.points, ...levelInfo(user.points), biometricEnabled: Boolean(user.passkeys?.length), createdAt: user.createdAt })
 const createToken = (user, session) => jwt.sign({ sub: user.id, sid: session.id }, JWT_SECRET, { expiresIn: '12h' })
 const startSession = (store, user) => createToken(user, openSession(store, user.id))
@@ -181,25 +189,8 @@ app.get('/api/transactions', auth, (req, res) => {
 app.get('/api/deposits/banks', auth, (_req, res) => res.json({ banks: PSE_BANKS }))
 
 app.post('/api/deposits', auth, (req, res) => {
-  const amount = Math.round(Number(req.body?.amount))
-  if (!Number.isSafeInteger(amount) || amount < MIN_DEPOSIT) return res.status(400).json({ message: `La recarga mínima es de ${cop(MIN_DEPOSIT)}.` })
-  if (amount > MAX_DEPOSIT) return res.status(400).json({ message: `La recarga no puede superar ${cop(MAX_DEPOSIT)}.` })
-  let result; let description
-  if (req.body?.source === 'bank') {
-    const bank = findPseBank(req.body?.bank)
-    if (!bank) return res.status(400).json({ message: 'Selecciona tu banco para pagar por PSE.' })
-    result = debitPse(bank); description = `PSE · ${bank.name}`
-  } else {
-    const card = { number: digits(req.body?.card?.number), expiry: String(req.body?.card?.expiry ?? '').trim(), cvv: digits(req.body?.card?.cvv) }
-    const cardError = validateCard(card)
-    if (cardError) return res.status(400).json({ message: cardError })
-    result = chargeCard(card); description = `Tarjeta ••${card.number.slice(-4)}`
-  }
-  // Sin comisión interna: se acredita exactamente el monto recargado.
-  if (result.approved) req.user.balance += amount
-  const tx = { id: randomUUID(), reference: newReference('REC', req.store.transactions), type: 'deposit', amount, fee: 0, fromUserId: null, toUserId: req.user.id, status: result.approved ? 'completed' : 'failed', description, providerReference: result.authorization ?? null, ...(result.approved ? {} : { failureReason: result.reason }), createdAt: new Date().toISOString() }
-  req.store.transactions.push(tx); writeStore(req.store); notify(req.user.id)
-  res.status(result.approved ? 201 : 402).json({ ...(result.approved ? {} : { message: result.reason }), transaction: tx, user: publicUser(req.user) })
+  const { approved, reason, transaction } = deposits.execute({ input: req.body ?? {}, user: req.user, store: req.store })
+  res.status(approved ? 201 : 402).json({ ...(approved ? {} : { message: reason }), transaction, user: publicUser(req.user) })
 })
 
 // F-05 · Transferencia entre usuarios.
