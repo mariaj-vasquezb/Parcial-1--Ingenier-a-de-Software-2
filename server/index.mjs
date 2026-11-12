@@ -5,13 +5,14 @@ import cors from 'cors'
 import jwt from 'jsonwebtoken'
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { readStore, writeStore } from './store.mjs'
-import { WalletError, levelInfo, newReference, parseAmount, quotePayment, quoteTransfer } from './wallet.mjs'
+import { WalletError, levelInfo, newReference, parseAmount, quotePayment } from './wallet.mjs'
 import { verifyIdentity } from './kyc.mjs'
 import { PSE_BANKS } from './payment-gateway.mjs'
 import { cardDepositProvider, pseDepositProvider } from './deposit-providers.mjs'
 import { createDepositService } from './deposit-service.mjs'
+import { createTransferService } from './transfer-service.mjs'
 import { closeSession, openSession, sessionExpired, touchSession } from './sessions.mjs'
-import { consumeOtp, issueOtp, OTP_TTL_MS } from './otp.mjs'
+import { OTP_TTL_MS } from './otp.mjs'
 import { merchantQrPayload, readMerchantQr } from './qr.mjs'
 import { notify, subscribe } from './events.mjs'
 import { authenticationOptions, registrationOptions, rememberChallenge, takeChallenge, verifyAuthentication, verifyRegistration } from './webauthn.mjs'
@@ -19,6 +20,10 @@ import { authenticationOptions, registrationOptions, rememberChallenge, takeChal
 // Composición de adaptadores concretos: el servicio depende de sus contratos (DIP).
 const deposits = createDepositService({
   providers: new Map([['card', cardDepositProvider], ['bank', pseDepositProvider]]),
+  repository: { save: writeStore },
+  notifier: { notify },
+})
+const transfers = createTransferService({
   repository: { save: writeStore },
   notifier: { notify },
 })
@@ -193,23 +198,13 @@ app.post('/api/deposits', auth, (req, res) => {
   res.status(approved ? 201 : 402).json({ ...(approved ? {} : { message: reason }), transaction, user: publicUser(req.user) })
 })
 
-// F-05 · Transferencia entre usuarios.
-function transferRequest(req) {
-  const amount = parseAmount(req.body?.amount)
-  const target = findRecipient(req.store, req.user, req.body?.recipient)
-  if (!target) throw new WalletError(404, 'El destinatario no existe o no está activo.')
-  return { target, quote: quoteTransfer({ sender: req.user, amount, transactions: req.store.transactions }) }
-}
-
 app.post('/api/transfers/preview', auth, (req, res) => {
-  const { target, quote } = transferRequest(req)
+  const { target, quote } = transfers.preview({ input: req.body ?? {}, user: req.user, store: req.store })
   res.json({ preview: { recipient: { fullName: target.fullName, accountNumber: target.accountNumber }, ...quote } })
 })
 
 app.post('/api/transfers/otp', auth, (req, res) => {
-  const { target, quote } = transferRequest(req)
-  if (!quote.requiresOtp) return res.status(400).json({ message: 'Esta transferencia no requiere código de confirmación.' })
-  const code = issueOtp(req.store, req.user.id, { recipientId: target.id, amount: quote.amount }); writeStore(req.store)
+  const code = transfers.issueConfirmation({ input: req.body ?? {}, user: req.user, store: req.store })
   const sentTo = `••• ${req.user.phone.slice(-4)}`
   console.log(`[SMS simulado] ${sentTo}: tu código WalletUQ es ${code}`)
   // Prototipo: no hay proveedor SMS real, así que el código se devuelve para mostrarlo en pantalla.
@@ -217,17 +212,8 @@ app.post('/api/transfers/otp', auth, (req, res) => {
 })
 
 app.post('/api/transfers', auth, (req, res) => {
-  const { target, quote } = transferRequest(req)
-  if (quote.requiresOtp) {
-    const otp = consumeOtp(req.store, req.user.id, { recipientId: target.id, amount: quote.amount }, req.body?.otp)
-    if (!otp.ok) { writeStore(req.store); return res.status(400).json({ code: 'OTP_INVALID', message: otp.message }) }
-  }
-  // Todo el movimiento se aplica en memoria y se persiste con una sola escritura atómica:
-  // si algo falla antes de guardar, ningún saldo cambia.
-  req.user.balance -= quote.total; target.balance += quote.amount; req.user.points += quote.points
-  const tx = { id: randomUUID(), reference: newReference('TRX', req.store.transactions), type: 'transfer', amount: quote.amount, fee: quote.fee, fromUserId: req.user.id, toUserId: target.id, status: 'completed', description: String(req.body?.description ?? '').slice(0, 80), createdAt: new Date().toISOString() }
-  req.store.transactions.push(tx); writeStore(req.store); notify(req.user.id, target.id)
-  res.status(201).json({ transaction: tx, user: publicUser(req.user) })
+  const { transaction } = transfers.execute({ input: req.body ?? {}, user: req.user, store: req.store })
+  res.status(201).json({ transaction, user: publicUser(req.user) })
 })
 
 // F-06 · Pago a comercio afiliado con código QR.
