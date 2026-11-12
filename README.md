@@ -50,3 +50,7 @@ npm test            # pruebas unitarias, sin servidor
 npm run test:flow   # flujo completo F-01 a F-06 contra la API en el puerto 4000
 ```
 "# Parcial-1--Ingenier-a-de-Software-2" 
+
+## Informe de refactorización
+
+Consulta el [diagnóstico técnico y la verificación de la refactorización](docs/refactorizacion/DIAGNOSTICO_REFACTORIZACION.md). La versión Word está en [INFORME_REFACTORIZACION_Y_PRUEBAS.docx](docs/refactorizacion/INFORME_REFACTORIZACION_Y_PRUEBAS.docx).

@@ -91,6 +91,15 @@ Una práctica del proceso que habría detectado H-01 antes de entregar es revisa
 
 ## 8. Git
 
-- Diagnóstico: pendiente de registrar en commit.
-- Intervención: pendiente de registrar en commit.
-- Verificación: pendiente de registrar en commit.
+- Diagnóstico: `a46301f` — `docs: registrar diagnostico tecnico`.
+- Intervención: `a51e15c` — `refactor: separar caso de uso de transferencias`.
+- Verificación e informes Markdown y Word: tercer commit de la entrega — `docs: documentar verificacion de refactorizacion`. Su hash se consulta con `git log -1 --format=%h`.
+
+## 9. Capturas recomendadas para la sustentación
+
+Las siguientes capturas no se incluyen como evidencia tomada; son una guía para obtener capturas reales en el editor y la terminal:
+
+1. **Separación del caso de uso:** mostrar `server/index.mjs` delegando las rutas de vista previa, OTP y confirmación, junto a `server/transfer-service.mjs`, donde se inyectan repositorio/notificador y se guarda antes de notificar. Referencias: `server/index.mjs:201–216` y `server/transfer-service.mjs:16–57`.
+2. **Comportamiento ante OTP inválido:** mostrar la prueba `persists invalid OTP attempts without moving balances or notifying` y su resultado aprobado al ejecutar `node --test server/transfer-service.test.mjs`. Referencias: `server/transfer-service.test.mjs:35–60` y `server/transfer-service.mjs:30–38`.
+3. **Prueba integral de transferencia:** mostrar en terminal el resultado de `npm run test:flow` y, en el editor, la ruta HTTP que delega en el servicio. Referencias: `server/index.mjs:214–216` y `server/smoke-test.mjs:24–25, 38–45`.
+4. **Cierre de pruebas y compilación:** capturar en terminal `npm test` con el resumen `36 passed, 0 failed`, `npm run build` exitoso y el resultado del flujo integrado. Evitar que la captura muestre tokens, datos personales o secretos.
